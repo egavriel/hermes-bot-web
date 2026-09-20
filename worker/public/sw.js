@@ -1,7 +1,7 @@
 // Hermes PWA Service Worker
 // Strategy: network-first for API, cache-first for static assets, offline fallback for navigation.
 
-const CACHE_NAME = "hermes-v3";
+const CACHE_NAME = "hermes-v4";
 const STATIC_ASSETS = [
   "/",
   "/index.html",

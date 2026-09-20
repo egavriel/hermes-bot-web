@@ -368,24 +368,34 @@ function renderShell() {
   });
 
   function renderDrawerList() {
+    const bot = currentBot();
     const sessions = loadSessions(state.currentBotId);
     if (sessions.length === 0) {
       $drawerList.innerHTML = `
         <div class="drawer-empty">
-          <div class="drawer-empty-icon">✦</div>
+          <div class="drawer-empty-icon">${bot.icon || "✦"}</div>
           <p>No conversations yet</p>
-          <p class="drawer-empty-sub">Tap + to start a new chat</p>
+          <p class="drawer-empty-sub">${escapeHtml(bot.name || "This bot")} · tap + to start</p>
         </div>
       `;
       return;
     }
-    $drawerList.innerHTML = sessions.map(s => `
+    $drawerList.innerHTML = `
+      <div class="drawer-section-label">
+        <span class="drawer-section-icon">${bot.icon || "✦"}</span>
+        <span>${escapeHtml(bot.name || "Bot")}</span>
+      </div>
+    ` + sessions.map(s => `
       <div class="drawer-item ${s.id === state.session?.id ? "active" : ""}" data-session-id="${s.id}">
         <button class="drawer-item-main" type="button">
-          <div class="drawer-item-title">${escapeHtml(s.title)}</div>
+          <div class="drawer-item-title-row">
+            <span class="drawer-item-bot">${bot.icon || "✦"}</span>
+            <div class="drawer-item-title">${escapeHtml(s.title || "New chat")}</div>
+          </div>
           <div class="drawer-item-meta">
+            <span class="drawer-item-botname">${escapeHtml(bot.name || "")}</span>
             <span class="drawer-item-time">${relativeTime(s.updatedAt)}</span>
-            <span class="drawer-item-count">${s.messages.filter(m => m.role === "user").length} msgs</span>
+            <span class="drawer-item-count">${(s.messages || []).filter(m => m.role === "user").length} msgs</span>
           </div>
         </button>
         <button class="drawer-item-delete" type="button" aria-label="Delete" data-session-id="${s.id}">
@@ -457,9 +467,14 @@ function renderShell() {
             <div class="template-desc">${escapeHtml(t.description)}</div>
           </div>
         </div>
-        <button class="template-use" data-template-id="${t.id}" data-action="use-template" type="button">
-          Use template
-        </button>
+        <div class="template-actions">
+          <button class="template-chat" data-template-id="${t.id}" data-action="chat-template" type="button">
+            Chat
+          </button>
+          <button class="template-use" data-template-id="${t.id}" data-action="use-template" type="button">
+            Use template
+          </button>
+        </div>
       </div>
     `).join("");
 
@@ -493,6 +508,14 @@ function renderShell() {
         e.stopPropagation();
         const tpl = state.templates.find(t => t.id === $btn.dataset.templateId);
         if (tpl) openBotEditor(tpl, null);
+      });
+    });
+    $botList.querySelectorAll("[data-action='chat-template']").forEach($btn => {
+      $btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const tid = $btn.dataset.templateId;
+        if (tid && tid !== state.currentBotId) switchBot(tid);
+        closeBotList();
       });
     });
     $botList.querySelector("[data-action='blank']").addEventListener("click", () => {
@@ -1245,6 +1268,9 @@ function renderShell() {
 
   async function sendMessage(text, isRegenerate = false) {
     if (state.isStreaming) return;
+    if (!state.loaded) {
+      try { await loadBotsFromServer(); } catch {}
+    }
     if (!state.session) startNewSession();
     setStatus(true);
     const pendingAttachments = $inputWrap._pendingAttachments || [];
@@ -1266,7 +1292,7 @@ function renderShell() {
       }
       appendUserMessage(userMsg);
       $inputWrap._pendingAttachments = [];
-      $inputWrap.querySelectorAll(".attachment-preview").forEach(el => el.remove());
+      document.querySelectorAll(".fab-attach-row .attachment-preview, .attachment-preview").forEach(el => el.remove());
     }
 
     const assistantMsg = {
@@ -1282,7 +1308,19 @@ function renderShell() {
     state.controller = new AbortController();
 
     const bot = currentBot();
-    const isChief = bot.id === "tmpl_chief" || bot.id === "bot_starter_chief";
+    if (!bot?.id) {
+      const refs = assistantBubbles.get(assistantMsg.id);
+      if (refs) {
+        refs.bubble.textContent = "No bot selected. Open the bot switcher and pick Chief of Staff.";
+        refs.bubble.classList.remove("streaming");
+      }
+      assistantMsg.content = "No bot selected";
+      assistantMsg.streaming = false;
+      state.isStreaming = false;
+      $send.classList.remove("stop");
+      return;
+    }
+    const isChief = bot.id === "tmpl_chief" || bot.id === "bot_starter_chief" || bot.templateId === "tmpl_chief";
     const payloadMessages = currentMessages().filter(m => !m.streaming).map(({ role, content }) => ({ role, content }));
 
     try {
@@ -1295,7 +1333,14 @@ function renderShell() {
 
       if (!res.ok) {
         let msgText = `Error ${res.status}`;
-        try { const j = await res.json(); if (j.message) msgText = j.message; } catch {}
+        try {
+          const j = await res.json();
+          if (j.message) msgText = j.message;
+          else if (j.error) msgText = `${j.error}${j.bot_id ? ` (${j.bot_id})` : ""}`;
+        } catch {}
+        if (res.status === 401 || res.status === 403) {
+          msgText = "Session expired. Refresh and sign in again.";
+        }
         const refs = assistantBubbles.get(assistantMsg.id);
         if (refs) refs.bubble.textContent = msgText;
         assistantMsg.content = msgText;

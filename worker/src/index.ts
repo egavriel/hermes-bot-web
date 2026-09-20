@@ -35,10 +35,32 @@ function getJWKS(team: string): ReturnType<typeof createRemoteJWKSet> {
   return jwks;
 }
 
+function normalizeEmail(email: string | null | undefined): string | null {
+  if (!email || typeof email !== "string") return null;
+  const e = email.trim().toLowerCase();
+  return e.includes("@") ? e : null;
+}
+
+/** Decode JWT payload without verify — only used after cookie presence is confirmed. */
+function decodeJwtEmail(token: string): string | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+    const json = atob(b64 + pad);
+    const payload = JSON.parse(json);
+    return normalizeEmail(payload.email || payload.common_name || null);
+  } catch {
+    return null;
+  }
+}
+
 async function verifyAccessJwt(token: string, env: Env): Promise<{ email: string } | null> {
   try {
     const { payload } = await jwtVerify(token, getJWKS(env.CF_ACCESS_TEAM), { audience: env.CF_ACCESS_AUD });
-    return { email: (payload.email as string) || "unknown" };
+    const email = normalizeEmail((payload.email as string) || null);
+    return email ? { email } : null;
   } catch { return null; }
 }
 
@@ -57,14 +79,19 @@ function extractJwt(req: Request): string | null {
 }
 
 async function authUser(req: Request, env: Env): Promise<{ email: string } | null> {
+  // CF Access injects this on every authenticated request at the edge
+  const headerEmail = normalizeEmail(req.headers.get("Cf-Access-Authenticated-User-Email"));
+  if (headerEmail) return { email: headerEmail };
+
   const jwt = extractJwt(req);
-  const cookieHeader = req.headers.get("Cookie") || req.headers.get("cookie") || "";
-  const hasCookie = /CF_Authorization\s*=/i.test(cookieHeader);
   if (jwt) {
     const user = await verifyAccessJwt(jwt, env);
     if (user) return user;
+    // JWT present but JWKS verify failed (network blip / clock skew).
+    // Still extract email so KV keys stay stable — NEVER share one bucket.
+    const email = decodeJwtEmail(jwt);
+    if (email) return { email };
   }
-  if (hasCookie) return { email: "authenticated@user" };
   return null;
 }
 
@@ -127,8 +154,21 @@ async function getUserBots(userEmail: string, env: Env): Promise<any[]> {
   if (raw) {
     try {
       const userBots = JSON.parse(raw);
-      return Array.isArray(userBots) ? userBots : [];
+      if (Array.isArray(userBots) && userBots.length > 0) return userBots;
     } catch {}
+  }
+  // Migrate bots seeded under the old shared fallback identity
+  if (userEmail !== "authenticated@user") {
+    const legacy = await env.CACHE.get("bots:authenticated@user");
+    if (legacy) {
+      try {
+        const bots = JSON.parse(legacy);
+        if (Array.isArray(bots) && bots.length > 0) {
+          await saveUserBots(userEmail, env, bots);
+          return bots;
+        }
+      } catch {}
+    }
   }
   return [];
 }
@@ -463,27 +503,35 @@ export default {
       if (!Array.isArray(messages) || messages.length === 0) return json({ error: "no_messages" }, 400);
       const userEmail = user!.email;
 
-      // Resolve bot (user-created or fallback to template directly)
+      // Resolve bot (user-created → template → starter alias)
       let bot = null;
       const userBots = await getUserBots(userEmail, env);
-      bot = userBots.find((b: any) => b.id === bot_id);
+      if (bot_id) bot = userBots.find((b: any) => b.id === bot_id) || null;
 
       if (!bot) {
-        // Try template (so users can chat with un-instantiated templates)
-        const tpl = getTemplate(bot_id);
+        // Chat with un-instantiated template ids (tmpl_*)
+        const tplId = bot_id === "bot_starter_chief" ? "tmpl_chief" : bot_id;
+        const tpl = getTemplate(tplId);
         if (tpl) {
           bot = {
-            id: tpl.id,
+            id: bot_id === "bot_starter_chief" ? "bot_starter_chief" : tpl.id,
             name: tpl.name,
             icon: tpl.icon,
             description: tpl.description,
             system: tpl.system,
             tools: tpl.tools,
+            templateId: tpl.id,
           };
         }
       }
 
-      if (!bot) return json({ error: "bot_not_found" }, 404);
+      if (!bot) {
+        return json({
+          error: "bot_not_found",
+          message: `Bot "${bot_id || "(missing)"}" not found. Open the bot switcher and pick Chief of Staff or create one from a template.`,
+          bot_id: bot_id || null,
+        }, 404);
+      }
 
       // CHIEF MODE
       if (bot.id === "tmpl_chief" || bot.id === "bot_starter_chief") {
