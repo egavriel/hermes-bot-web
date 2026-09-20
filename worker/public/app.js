@@ -202,6 +202,12 @@ function renderShell() {
         <span class="bot-caret">▾</span>
       </button>
       <div class="header-actions">
+        <button class="icon-btn" id="newBotBtn" type="button" aria-label="New bot" title="New bot">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 5v3M12 16v3M5 12h3M16 12h3"/>
+          </svg>
+        </button>
         <button class="icon-btn" id="newChatBtn" type="button" aria-label="New chat" title="New chat">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 5v14M5 12h14"/>
@@ -265,7 +271,8 @@ function renderShell() {
   const $inputWrap = document.querySelector(".input-wrap");
   const $send = document.getElementById("send");
   const $micBtn = document.getElementById("micBtn");
-  const $attachBtn = document.getElementById("attachBtn");
+  const $newChatBtn = document.getElementById("newChatBtn");
+  const $newBotBtn = document.getElementById("newBotBtn");
   const $form = document.getElementById("form");
   const $messages = document.getElementById("messages");
   const $statusDot = document.getElementById("statusDot");
@@ -273,7 +280,6 @@ function renderShell() {
   const $botName = document.getElementById("botName");
   const $botIcon = document.getElementById("botIcon");
   const $botList = document.getElementById("botList");
-  const $newChatBtn = document.getElementById("newChatBtn");
   const $drawerBtn = document.getElementById("drawerBtn");
   const $drawer = document.getElementById("drawer");
   const $drawerList = document.getElementById("drawerList");
@@ -882,6 +888,68 @@ function renderShell() {
     startNewSession();
   });
 
+  $newBotBtn.addEventListener("click", () => openTemplatePicker());
+
+  function openTemplatePicker() {
+    // Build a template picker overlay
+    const overlay = document.createElement("div");
+    overlay.className = "template-picker-overlay";
+    overlay.innerHTML = `
+      <div class="template-picker">
+        <div class="template-picker-header">
+          <h2>Create new bot</h2>
+          <button class="icon-btn close-picker" type="button" aria-label="Close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <p class="template-picker-hint">Pick a template to get started. Each template includes a system prompt, suggested memory, and (where relevant) seed documents.</p>
+        <div class="template-picker-grid">
+          ${state.templates.map(t => `
+            <button class="template-picker-card" data-template-id="${t.id}" type="button">
+              <div class="template-picker-icon">${t.icon}</div>
+              <div class="template-picker-name">${escapeHtml(t.name)}</div>
+              <div class="template-picker-desc">${escapeHtml(t.description)}</div>
+              <div class="template-picker-cat">${escapeHtml(t.category)}</div>
+            </button>
+          `).join("")}
+          <button class="template-picker-card template-blank" data-template-id="" type="button">
+            <div class="template-picker-icon">+</div>
+            <div class="template-picker-name">Blank</div>
+            <div class="template-picker-desc">Start from scratch</div>
+            <div class="template-picker-cat">blank</div>
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add("open"));
+
+    // Handlers
+    function close() {
+      overlay.classList.remove("open");
+      setTimeout(() => overlay.remove(), 200);
+    }
+    overlay.querySelector(".close-picker").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close();
+    });
+    overlay.querySelectorAll(".template-picker-card").forEach($card => {
+      $card.addEventListener("click", () => {
+        const tid = $card.dataset.templateId;
+        close();
+        if (tid) {
+          const tpl = state.templates.find(t => t.id === tid);
+          if (tpl) openBotEditor(tpl, null);
+        } else {
+          openBotEditor(null, null);
+        }
+      });
+    });
+  }
+
   function setStatus(online) {
     $statusDot.classList.toggle("offline", !online);
   }
@@ -890,10 +958,19 @@ function renderShell() {
     const bot = currentBot() || {};
     const $empty = document.createElement("div");
     $empty.className = "empty";
+    const hasNoUserBots = state.bots.length === 0;
     $empty.innerHTML = `
       <div class="empty-icon">${bot.icon || "✦"}</div>
       <h2>${escapeHtml(bot.name || "Hermes")}</h2>
       <p>${escapeHtml(bot.description || "")}</p>
+      ${hasNoUserBots ? `
+        <button class="empty-cta" id="emptyCreateBotBtn" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Browse templates
+        </button>
+      ` : ""}
       <div class="chips">
         <button class="chip" data-prompt="Hello">Say hello</button>
         <button class="chip" data-prompt="What can you help me with?">What can you do?</button>
@@ -908,6 +985,8 @@ function renderShell() {
         $form.requestSubmit();
       });
     });
+    const $cta = $empty.querySelector("#emptyCreateBotBtn");
+    if ($cta) $cta.addEventListener("click", () => openTemplatePicker());
   }
 
   function scrollToBottom() {
