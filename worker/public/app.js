@@ -1,14 +1,14 @@
 /**
- * Hermes Bot Web — Mobile Chat UI v5 (Templates + Memory + KB)
+ * Hermes Bot Web — Desktop Bot Mode parity (v6)
  *
  * Features:
- *   - 9 bot templates (Chief, Assistant, Code Mentor, Writer, Researcher, Data Analyst, Memory Curator, Knowledge Base, Blank)
- *   - Create bots FROM templates (with pre-seeded memory + KB)
- *   - Per-bot Memory (KV-backed, surfaced in chat context)
- *   - Per-bot Knowledge Base (upload txt/md, keyword-retrieved)
- *   - Multi-bot switcher with template gallery
- *   - Multi-session drawer
- *   - Voice input, image upload, PWA, markdown
+ *   - Templates + multi-bot + memory + KB (v5)
+ *   - Roster with blob avatars + @handles
+ *   - Canonical Bot Chat (/new = compact, not clear)
+ *   - message_agent bot-to-bot + inbox
+ *   - Routines pane (bot-namespaced)
+ *   - Group rooms (2–6 bots, serial rounds, @mentions)
+ *   - Voice, image, PWA, markdown
  *
  * No framework. Direct DOM.
  */
@@ -114,6 +114,67 @@ const api = {
     const r = await fetch(`/api/bots/${botId}/kb/${docId}`, { method: "DELETE", credentials: "include" });
     return r.ok ? r.json() : { docs: [] };
   },
+  async roster() {
+    const r = await fetch("/api/roster", { credentials: "include" });
+    return r.ok ? r.json() : { roster: [] };
+  },
+  async sessions(botId) {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(botId)}`, { credentials: "include" });
+    return r.ok ? r.json() : { sessions: [], canonical: null };
+  },
+  async sessionAction(botId, body) {
+    const r = await fetch(`/api/sessions/${encodeURIComponent(botId)}`, {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return r.ok ? r.json() : null;
+  },
+  async routines(botId) {
+    const q = botId ? `?bot_id=${encodeURIComponent(botId)}` : "";
+    const r = await fetch(`/api/routines${q}`, { credentials: "include" });
+    return r.ok ? r.json() : { routines: [] };
+  },
+  async createRoutine(body) {
+    const r = await fetch("/api/routines", {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`routine: ${r.status}`);
+    return r.json();
+  },
+  async runRoutine(id) {
+    const r = await fetch(`/api/routines/${id}/run`, { method: "POST", credentials: "include" });
+    if (!r.ok) throw new Error(`run: ${r.status}`);
+    return r.json();
+  },
+  async deleteRoutine(id) {
+    const r = await fetch(`/api/routines/${id}`, { method: "DELETE", credentials: "include" });
+    return r.ok ? r.json() : { routines: [] };
+  },
+  async groups() {
+    const r = await fetch("/api/groups", { credentials: "include" });
+    return r.ok ? r.json() : { groups: [] };
+  },
+  async createGroup(body) {
+    const r = await fetch("/api/groups", {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`group: ${r.status}`);
+    return r.json();
+  },
+  async deleteGroup(id) {
+    const r = await fetch(`/api/groups/${id}`, { method: "DELETE", credentials: "include" });
+    return r.ok ? r.json() : { groups: [] };
+  },
+  async inbox(botId) {
+    const q = botId ? `?bot_id=${encodeURIComponent(botId)}` : "";
+    const r = await fetch(`/api/inbox${q}`, { credentials: "include" });
+    return r.ok ? r.json() : { inbox: [] };
+  },
 };
 
 // ── State ───────────────────────────────────────────────
@@ -124,13 +185,19 @@ const state = {
   currentBotId: localStorage.getItem(LS.botId()) || "bot_starter_chief",
   bots: [],
   templates: [],
+  roster: [],
+  routines: [],
+  groups: [],
+  inbox: [],
+  mode: "chat", // chat | roster | routines | groups
+  activeGroupId: null,
   loaded: false,
   botsListOpen: false,
   drawerOpen: false,
   botEditorOpen: false,
   botEditorTab: "basics", // basics | memory | kb
-  editingBot: null, // null = create new, {id, ...} = edit
-  creatingFromTemplate: null, // template object being instantiated
+  editingBot: null,
+  creatingFromTemplate: null,
 };
 
 // ── Markdown renderer ───────────────────────────────────
@@ -202,13 +269,31 @@ function renderShell() {
         <span class="bot-caret">▾</span>
       </button>
       <div class="header-actions">
-        <button class="icon-btn" id="newBotBtn" type="button" aria-label="New bot" title="New bot">
+        <button class="icon-btn" id="rosterBtn" type="button" aria-label="Roster" title="Bot roster">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="routinesBtn" type="button" aria-label="Routines" title="Routines">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="groupsBtn" type="button" aria-label="Groups" title="Group rooms">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="newBotBtn" type="button" aria-label="New bot" title="New bot from template">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
             <path d="M12 5v3M12 16v3M5 12h3M16 12h3"/>
           </svg>
         </button>
-        <button class="icon-btn" id="newChatBtn" type="button" aria-label="New chat" title="New chat">
+        <button class="icon-btn" id="newChatBtn" type="button" aria-label="Compact chat" title="Compact canonical chat (Desktop /new)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -235,6 +320,7 @@ function renderShell() {
     </aside>
     <div class="bot-list" id="botList" hidden></div>
     <div class="bot-editor" id="botEditor" hidden></div>
+    <div class="mode-panel" id="modePanel" hidden></div>
     <main class="messages" id="messages"></main>
     <!-- Floating chat input: collapsed = circle (FAB), expanded = pill with input -->
     <div class="chat-fab" id="chatFab">
@@ -264,7 +350,7 @@ function renderShell() {
                 <line x1="8" y1="23" x2="16" y2="23"/>
               </svg>
             </button>
-            <textarea id="input" rows="1" placeholder="Ask anything…"
+            <textarea id="input" rows="1" placeholder="Ask…  @bot for message_agent"
               autocomplete="off" autocorrect="off" autocapitalize="sentences"
               spellcheck="true" enterkeyhint="send"></textarea>
             <button id="send" type="submit" aria-label="Send" disabled>
@@ -301,6 +387,10 @@ function renderShell() {
   const $closeDrawerBtn = document.getElementById("closeDrawerBtn");
   const $drawerBotInfo = document.getElementById("drawerBotInfo");
   const $botEditor = document.getElementById("botEditor");
+  const $modePanel = document.getElementById("modePanel");
+  const $rosterBtn = document.getElementById("rosterBtn");
+  const $routinesBtn = document.getElementById("routinesBtn");
+  const $groupsBtn = document.getElementById("groupsBtn");
 
   const assistantBubbles = new Map();
 
@@ -310,11 +400,15 @@ function renderShell() {
       const data = await api.bots();
       state.bots = data.bots || [];
       state.templates = data.templates || [];
+      try {
+        const r = await api.roster();
+        state.roster = r.roster || [];
+      } catch { state.roster = []; }
       state.loaded = true;
-      // Validate current bot still exists
       const allIds = new Set([
         ...state.bots.map(b => b.id),
         ...state.templates.map(t => t.id),
+        ...state.roster.map(b => b.id),
       ]);
       if (!allIds.has(state.currentBotId)) {
         state.currentBotId = state.bots[0]?.id || "tmpl_assistant";
@@ -333,15 +427,22 @@ function renderShell() {
       || { id: "bot_starter_chief", name: "Chief of Staff", icon: "⚔️" };
   }
 
+  function botAvatarHtml(bot, size = 28) {
+    if (bot?.avatar) {
+      return `<img class="bot-avatar" src="${bot.avatar}" width="${size}" height="${size}" alt="" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover"/>`;
+    }
+    return `<span class="drawer-bot-icon" style="font-size:${Math.round(size*0.55)}px">${bot?.icon || "✦"}</span>`;
+  }
+
   function updateBotLabel() {
     const bot = currentBot();
     if (!bot) return;
-    $botIcon.textContent = bot.icon;
-    $botName.textContent = bot.name;
+    $botIcon.innerHTML = botAvatarHtml(bot, 22);
+    $botName.textContent = bot.name + (bot.handle ? ` · @${bot.handle}` : "");
     $drawerBotInfo.innerHTML = `
-      <span class="drawer-bot-icon">${bot.icon}</span>
+      ${botAvatarHtml(bot, 36)}
       <div>
-        <div class="drawer-bot-name">${escapeHtml(bot.name)}</div>
+        <div class="drawer-bot-name">${escapeHtml(bot.name)}${bot.handle ? ` <span class="handle">@${escapeHtml(bot.handle)}</span>` : ""}</div>
         <div class="drawer-bot-desc">${escapeHtml(bot.description || "")}</div>
       </div>
     `;
@@ -920,9 +1021,34 @@ function renderShell() {
     upsertSession(state.session);
   }
 
-  $newChatBtn.addEventListener("click", () => {
+  $newChatBtn.addEventListener("click", async () => {
+    // Desktop Bot Mode: /new = COMPACT canonical chat (not clear / not new thread)
     if (state.isStreaming) stopStream();
     saveCurrentSession();
+    const bot = currentBot();
+    try {
+      const res = await api.sessionAction(bot.id, { action: "compact" });
+      if (res?.session) {
+        state.session = {
+          id: res.session.id,
+          botId: bot.id,
+          title: res.session.title || `${bot.name} · Bot Chat`,
+          messages: res.session.messages || [],
+          canonical: true,
+          createdAt: res.session.createdAt || Date.now(),
+          updatedAt: Date.now(),
+        };
+        setCurrentSessionId(bot.id, state.session.id);
+        upsertSession(state.session);
+        assistantBubbles.clear();
+        rerenderMessages();
+        if (!state.session.messages.length) showEmptyState();
+        if (state.drawerOpen) renderDrawerList();
+        return;
+      }
+    } catch (e) {
+      console.warn("compact failed, fallback new session", e);
+    }
     startNewSession();
   });
 
@@ -1367,35 +1493,59 @@ function renderShell() {
             if (line.startsWith("event: ")) curEvent = line.slice(7).trim();
             else if (line.startsWith("data: ")) curData = line.slice(6).trim();
           }
-          if (!curEvent || !curData) continue;
+          if (!curData) continue;
           let payload;
           try { payload = JSON.parse(curData); } catch { continue; }
-
-          if (isChief) {
-            if (curEvent === "thinking") {
-              appendChiefStep(assistantMsg.id, { type: "thinking", icon: "🧠", label: payload.label });
-              assistantMsg.chiefSteps.push({ type: "thinking", icon: "🧠", label: payload.label });
-            } else if (curEvent === "delegate") {
-              appendChiefStep(assistantMsg.id, { type: "delegate", icon: payload.botIcon || "→", label: `Delegated to ${payload.botName}`, detail: payload.reasoning });
-              assistantMsg.chiefSteps.push({ type: "delegate", icon: payload.botIcon || "→", label: `Delegated to ${payload.botName}`, detail: payload.reasoning });
-              completeChiefStep(assistantMsg.id);
-            } else if (curEvent === "bot_response") {
-              appendChiefStep(assistantMsg.id, { type: "bot_response", icon: payload.botIcon || "→", label: `${payload.botName} responded`, detail: payload.content.slice(0, 200) + (payload.content.length > 200 ? "…" : "") });
-              assistantMsg.chiefSteps.push({ type: "bot_response", icon: payload.botIcon || "→", label: `${payload.botName} responded`, detail: payload.content.slice(0, 200) });
-              completeChiefStep(assistantMsg.id);
-            } else if (curEvent === "synthesizing") {
-              appendChiefStep(assistantMsg.id, { type: "synthesizing", icon: "⚔️", label: payload.label });
-              assistantMsg.chiefSteps.push({ type: "synthesizing", icon: "⚔️", label: payload.label });
-              completeChiefStep(assistantMsg.id);
-            } else if (curEvent === "token") {
-              fullText += payload.content;
+          // OpenAI-compat stream (no event: line)
+          if (!curEvent) {
+            const d = payload.choices?.[0]?.delta?.content;
+            if (d) {
+              fullText += d;
               assistantMsg.content = fullText;
               scheduleRender(assistantMsg.id);
-            } else if (curEvent === "done") {
-              completeChiefStep(assistantMsg.id);
-            } else if (curEvent === "error") {
-              throw new Error(payload.message);
             }
+            continue;
+          }
+
+          // Shared streaming events (Chief + specialist + mentions)
+          if (curEvent === "thinking") {
+            appendChiefStep(assistantMsg.id, { type: "thinking", icon: "🧠", label: payload.label || "Thinking…" });
+            assistantMsg.chiefSteps.push({ type: "thinking", icon: "🧠", label: payload.label || "Thinking…" });
+          } else if (curEvent === "delegate") {
+            appendChiefStep(assistantMsg.id, { type: "delegate", icon: payload.botIcon || "→", label: `Delegated to ${payload.botName}`, detail: payload.reasoning });
+            assistantMsg.chiefSteps.push({ type: "delegate", icon: payload.botIcon || "→", label: `Delegated to ${payload.botName}`, detail: payload.reasoning });
+            completeChiefStep(assistantMsg.id);
+          } else if (curEvent === "bot_response") {
+            appendChiefStep(assistantMsg.id, { type: "bot_response", icon: payload.botIcon || "→", label: `${payload.botName} responded`, detail: (payload.content || "").slice(0, 200) + ((payload.content || "").length > 200 ? "…" : "") });
+            assistantMsg.chiefSteps.push({ type: "bot_response", icon: payload.botIcon || "→", label: `${payload.botName} responded`, detail: (payload.content || "").slice(0, 200) });
+            completeChiefStep(assistantMsg.id);
+          } else if (curEvent === "synthesizing") {
+            appendChiefStep(assistantMsg.id, { type: "synthesizing", icon: "⚔️", label: payload.label });
+            assistantMsg.chiefSteps.push({ type: "synthesizing", icon: "⚔️", label: payload.label });
+            completeChiefStep(assistantMsg.id);
+          } else if (curEvent === "agent_dispatch") {
+            appendChiefStep(assistantMsg.id, { type: "agent_dispatch", icon: payload.toIcon || "📨", label: `message_agent → ${payload.toName || payload.to}`, detail: payload.message });
+            assistantMsg.chiefSteps = assistantMsg.chiefSteps || [];
+            assistantMsg.chiefSteps.push({ type: "agent_dispatch", icon: payload.toIcon || "📨", label: `message_agent → ${payload.toName || payload.to}`, detail: payload.message });
+          } else if (curEvent === "agent_result") {
+            appendChiefStep(assistantMsg.id, { type: "agent_result", icon: "📬", label: `${payload.toName || payload.to}: ${payload.status}`, detail: payload.replyPreview });
+            completeChiefStep(assistantMsg.id);
+          } else if (curEvent === "agent_error") {
+            appendChiefStep(assistantMsg.id, { type: "agent_error", icon: "⚠", label: `Unknown target: ${payload.target}`, detail: payload.message });
+          } else if (curEvent === "token") {
+            fullText += payload.content || "";
+            assistantMsg.content = fullText;
+            scheduleRender(assistantMsg.id);
+          } else if (curEvent === "final") {
+            if (payload.content) {
+              fullText = payload.content;
+              assistantMsg.content = fullText;
+              scheduleRender(assistantMsg.id);
+            }
+          } else if (curEvent === "done") {
+            completeChiefStep(assistantMsg.id);
+          } else if (curEvent === "error") {
+            throw new Error(payload.message || "stream error");
           }
         }
       }
@@ -1450,8 +1600,372 @@ function renderShell() {
     $input.value = "";
     autoResize();
     $send.disabled = true;
-    sendMessage(text);
+    if (state.activeGroupId && state.mode === "groups") {
+      sendGroupMessage(text);
+    } else {
+      sendMessage(text);
+    }
   });
+
+
+  // ── Bot Mode panels: Roster / Routines / Groups ──
+  function closeModePanel() {
+    state.mode = "chat";
+    state.activeGroupId = null;
+    $modePanel.hidden = true;
+    $modePanel.innerHTML = "";
+    $messages.hidden = false;
+    document.getElementById("chatFab").style.display = "";
+  }
+
+  function openMode(mode) {
+    if (state.mode === mode && !$modePanel.hidden) {
+      closeModePanel();
+      return;
+    }
+    state.mode = mode;
+    $messages.hidden = true;
+    document.getElementById("chatFab").style.display = mode === "groups" && state.activeGroupId ? "" : (mode === "groups" ? "none" : "none");
+    $modePanel.hidden = false;
+    if (mode === "roster") renderRosterPanel();
+    else if (mode === "routines") renderRoutinesPanel();
+    else if (mode === "groups") renderGroupsPanel();
+  }
+
+  $rosterBtn.addEventListener("click", () => openMode("roster"));
+  $routinesBtn.addEventListener("click", () => openMode("routines"));
+  $groupsBtn.addEventListener("click", () => openMode("groups"));
+
+  async function renderRosterPanel() {
+    $modePanel.innerHTML = `<div class="mode-head"><h2>Roster</h2><button class="icon-btn mode-close" type="button" aria-label="Close">×</button></div><div class="mode-body"><p class="mode-hint">Desktop Shape A: every bot is a peer. Tap to open its canonical Bot Chat. @handle is the routing surface.</p><div class="roster-list" id="rosterList">Loading…</div></div>`;
+    $modePanel.querySelector(".mode-close").onclick = closeModePanel;
+    try {
+      const r = await api.roster();
+      state.roster = r.roster || [];
+    } catch {}
+    const $list = $modePanel.querySelector("#rosterList");
+    const rows = (state.roster || []).filter(b => !b.hidden);
+    $list.innerHTML = rows.map(b => `
+      <button class="roster-row" type="button" data-id="${escapeHtml(b.id)}">
+        ${b.avatar ? `<img class="bot-avatar" src="${b.avatar}" width="40" height="40" alt=""/>` : `<span class="roster-icon">${b.icon || "✦"}</span>`}
+        <div class="roster-meta">
+          <div class="roster-name">${escapeHtml(b.name)} <span class="handle">@${escapeHtml(b.handle || "")}</span></div>
+          <div class="roster-desc">${escapeHtml(b.description || "")}</div>
+        </div>
+      </button>
+    `).join("") || `<p class="empty-hint">No bots yet. Create one from a template.</p>`;
+    $list.querySelectorAll(".roster-row").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        state.currentBotId = id;
+        localStorage.setItem(LS.botId(), id);
+        updateBotLabel();
+        closeModePanel();
+        // Land on canonical Bot Chat
+        try {
+          const s = await api.sessions(id);
+          const canon = s.canonical || (s.sessions || []).find(x => x.canonical) || (s.sessions || [])[0];
+          if (canon) {
+            state.session = {
+              id: canon.id, botId: id, title: canon.title || "Bot Chat",
+              messages: canon.messages || [], canonical: !!canon.canonical,
+              createdAt: canon.createdAt || Date.now(), updatedAt: canon.updatedAt || Date.now(),
+            };
+            setCurrentSessionId(id, state.session.id);
+            upsertSession(state.session);
+            assistantBubbles.clear();
+            rerenderMessages();
+            if (!state.session.messages.length) showEmptyState();
+            return;
+          }
+        } catch {}
+        startNewSession();
+      });
+    });
+  }
+
+  async function renderRoutinesPanel() {
+    const bot = currentBot();
+    $modePanel.innerHTML = `
+      <div class="mode-head"><h2>Routines</h2><button class="icon-btn mode-close" type="button" aria-label="Close">×</button></div>
+      <div class="mode-body">
+        <p class="mode-hint">Bot-namespaced jobs, Desktop-style: <code>[bot:${escapeHtml(bot.name)}]</code> name. Run now or save for later.</p>
+        <form class="routine-form" id="routineForm">
+          <input name="name" placeholder="Name (e.g. morning brief)" required maxlength="80"/>
+          <input name="schedule" placeholder="Schedule (manual / every day 9am)" value="manual"/>
+          <textarea name="prompt" placeholder="What should ${escapeHtml(bot.name)} do?" rows="3" required></textarea>
+          <label class="chk"><input type="checkbox" name="continuity"/> Continuity (see prior output)</label>
+          <button type="submit" class="btn-primary">Add routine</button>
+        </form>
+        <div class="routine-list" id="routineList">Loading…</div>
+      </div>`;
+    $modePanel.querySelector(".mode-close").onclick = closeModePanel;
+    async function refresh() {
+      try {
+        const r = await api.routines(bot.id);
+        state.routines = r.routines || [];
+      } catch { state.routines = []; }
+      const $list = $modePanel.querySelector("#routineList");
+      $list.innerHTML = state.routines.map(rt => `
+        <div class="routine-card" data-id="${rt.id}">
+          <div class="routine-title">[bot:${escapeHtml(rt.botName)}] ${escapeHtml(rt.name)}</div>
+          <div class="routine-meta">${escapeHtml(rt.schedule)} · ${rt.enabled ? "on" : "off"}${rt.lastRunAt ? " · last " + relativeTime(rt.lastRunAt) : ""}</div>
+          <div class="routine-prompt">${escapeHtml((rt.prompt || "").slice(0, 140))}</div>
+          ${rt.lastOutput ? `<pre class="routine-out">${escapeHtml(rt.lastOutput.slice(0, 400))}</pre>` : ""}
+          <div class="routine-actions">
+            <button type="button" class="btn-sm run-rt">Run</button>
+            <button type="button" class="btn-sm danger del-rt">Delete</button>
+          </div>
+        </div>
+      `).join("") || `<p class="empty-hint">No routines for this bot yet.</p>`;
+      $list.querySelectorAll(".run-rt").forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.closest(".routine-card").dataset.id;
+          btn.disabled = true; btn.textContent = "Running…";
+          try {
+            const res = await api.runRoutine(id);
+            alert((res.output || "done").slice(0, 500));
+            await refresh();
+            // Pull compacted session if chat open
+            try {
+              const s = await api.sessions(bot.id);
+              const canon = s.canonical;
+              if (canon && state.session?.id === canon.id) {
+                state.session.messages = canon.messages || [];
+              }
+            } catch {}
+          } catch (e) {
+            alert(e.message);
+          } finally {
+            btn.disabled = false; btn.textContent = "Run";
+          }
+        };
+      });
+      $list.querySelectorAll(".del-rt").forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.closest(".routine-card").dataset.id;
+          await api.deleteRoutine(id);
+          await refresh();
+        };
+      });
+    }
+    $modePanel.querySelector("#routineForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api.createRoutine({
+          bot_id: bot.id,
+          name: fd.get("name"),
+          schedule: fd.get("schedule") || "manual",
+          prompt: fd.get("prompt"),
+          continuity: !!fd.get("continuity"),
+        });
+        e.target.reset();
+        await refresh();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+    await refresh();
+  }
+
+  async function renderGroupsPanel() {
+    $modePanel.innerHTML = `
+      <div class="mode-head"><h2>Groups</h2><button class="icon-btn mode-close" type="button" aria-label="Close">×</button></div>
+      <div class="mode-body" id="groupsBody">
+        <p class="mode-hint">Desktop group rooms: 2–6 bots + you. Serial rounds; @mention a bot to speak only to them.</p>
+        <div id="groupsHome"></div>
+      </div>`;
+    $modePanel.querySelector(".mode-close").onclick = () => { state.activeGroupId = null; closeModePanel(); };
+    await showGroupsHome();
+  }
+
+  async function showGroupsHome() {
+    const $body = $modePanel.querySelector("#groupsBody");
+    if (!$body) return;
+    try {
+      const r = await api.groups();
+      state.groups = r.groups || [];
+    } catch { state.groups = []; }
+    if (!state.roster.length) {
+      try { const rr = await api.roster(); state.roster = rr.roster || []; } catch {}
+    }
+    const peers = (state.roster || []).filter(b => !b.hidden);
+    $body.innerHTML = `
+      <p class="mode-hint">Desktop group rooms: 2–6 bots + you. Serial rounds; @mention a bot to speak only to them.</p>
+      <form class="group-form" id="groupForm">
+        <input name="name" placeholder="Room name" required maxlength="60"/>
+        <div class="group-pick" id="groupPick">
+          ${peers.map(b => `
+            <label class="pick-chip"><input type="checkbox" name="member" value="${escapeHtml(b.id)}"/>
+              ${b.avatar ? `<img src="${b.avatar}" width="20" height="20" class="bot-avatar"/>` : b.icon}
+              ${escapeHtml(b.name)}
+            </label>`).join("")}
+        </div>
+        <button type="submit" class="btn-primary">Create room</button>
+      </form>
+      <div class="group-list" id="groupList">
+        ${state.groups.map(g => `
+          <button type="button" class="group-card" data-id="${g.id}">
+            <div class="group-name">${escapeHtml(g.name)}</div>
+            <div class="group-meta">${g.memberBotIds.length} bots · ${g.messages?.length || 0} msgs</div>
+          </button>
+        `).join("") || `<p class="empty-hint">No groups yet.</p>`}
+      </div>`;
+    $body.querySelector("#groupForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const members = [...e.target.querySelectorAll('input[name="member"]:checked')].map(i => i.value);
+      if (members.length < 2 || members.length > 6) {
+        alert("Pick 2–6 bots");
+        return;
+      }
+      try {
+        const res = await api.createGroup({ name: fd.get("name"), memberBotIds: members });
+        state.activeGroupId = res.group.id;
+        await openGroupRoom(res.group.id);
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+    $body.querySelectorAll(".group-card").forEach(btn => {
+      btn.onclick = () => openGroupRoom(btn.dataset.id);
+    });
+  }
+
+  async function openGroupRoom(groupId) {
+    state.activeGroupId = groupId;
+    state.mode = "groups";
+    let group = (state.groups || []).find(g => g.id === groupId);
+    if (!group) {
+      try {
+        const r = await api.groups();
+        state.groups = r.groups || [];
+        group = state.groups.find(g => g.id === groupId);
+      } catch {}
+    }
+    if (!group) { await showGroupsHome(); return; }
+
+    $messages.hidden = false;
+    document.getElementById("chatFab").style.display = "";
+    $modePanel.hidden = true;
+
+    // Render group transcript into messages area
+    $messages.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "group-room-head";
+    head.innerHTML = `
+      <button type="button" class="btn-sm" id="backGroups">← Groups</button>
+      <strong>${escapeHtml(group.name)}</strong>
+      <button type="button" class="btn-sm danger" id="delGroup">Delete</button>`;
+    $messages.appendChild(head);
+    head.querySelector("#backGroups").onclick = async () => {
+      state.activeGroupId = null;
+      $messages.hidden = true;
+      document.getElementById("chatFab").style.display = "none";
+      $modePanel.hidden = false;
+      await renderGroupsPanel();
+    };
+    head.querySelector("#delGroup").onclick = async () => {
+      await api.deleteGroup(groupId);
+      state.activeGroupId = null;
+      await renderGroupsPanel();
+      $messages.hidden = true;
+      document.getElementById("chatFab").style.display = "none";
+      $modePanel.hidden = false;
+    };
+
+    for (const m of (group.messages || [])) {
+      appendGroupMessage(m);
+    }
+    if (!(group.messages || []).length) {
+      const empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.innerHTML = `<p>Group room ready. @mention a bot or speak to all.</p>`;
+      $messages.appendChild(empty);
+    }
+    scrollToBottom();
+
+    // Form submit branches on state.activeGroupId (see $form listener)
+  }
+
+  function appendGroupMessage(m) {
+    const empty = $messages.querySelector(".empty-state");
+    if (empty) empty.remove();
+    const el = document.createElement("div");
+    if (m.role === "user" || m.speaker === "you") {
+      el.className = "bubble user";
+      el.textContent = typeof m.content === "string" ? m.content : "";
+    } else {
+      el.className = "bubble assistant group-bot";
+      const who = document.createElement("div");
+      who.className = "group-speaker";
+      who.innerHTML = `${m.avatar ? `<img src="${m.avatar}" width="18" height="18" class="bot-avatar"/>` : (m.botIcon || "")} <strong>${escapeHtml(m.speaker || m.botId || "bot")}</strong>`;
+      el.appendChild(who);
+      const body = document.createElement("div");
+      body.innerHTML = renderMarkdown(typeof m.content === "string" ? m.content : "");
+      el.appendChild(body);
+    }
+    $messages.appendChild(el);
+  }
+
+  async function sendGroupMessage(text) {
+    if (state.isStreaming || !state.activeGroupId) return;
+    state.isStreaming = true;
+    $send.classList.add("stop");
+    state.controller = new AbortController();
+    appendGroupMessage({ role: "user", speaker: "you", content: text, ts: Date.now() });
+    try {
+      const res = await fetch(`/api/groups/${state.activeGroupId}/chat`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+        signal: state.controller.signal,
+      });
+      if (!res.ok) throw new Error(`group ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const event = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          let curEvent = "", curData = "";
+          for (const line of event.split("\n")) {
+            if (line.startsWith("event: ")) curEvent = line.slice(7).trim();
+            else if (line.startsWith("data: ")) curData = line.slice(6).trim();
+          }
+          if (!curEvent || !curData) continue;
+          let payload; try { payload = JSON.parse(curData); } catch { continue; }
+          if (curEvent === "group_bot") appendGroupMessage(payload);
+          else if (curEvent === "group_typing") {
+            // optional: show typing indicator
+          } else if (curEvent === "error") throw new Error(payload.message);
+        }
+      }
+      // refresh groups cache
+      try { const r = await api.groups(); state.groups = r.groups || []; } catch {}
+    } catch (err) {
+      if (err.name !== "AbortError") {
+        const el = document.createElement("div");
+        el.className = "bubble assistant";
+        el.textContent = `Error: ${err.message}`;
+        $messages.appendChild(el);
+      }
+    } finally {
+      state.isStreaming = false;
+      state.controller = null;
+      $send.classList.remove("stop");
+      $send.disabled = $input.value.trim().length === 0;
+      scrollToBottom();
+    }
+  }
+
+  // Restore normal form submit when leaving group is handled in close/open
 
   // ── Voice input ──
   let recognition = null, isListening = false;

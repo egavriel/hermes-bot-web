@@ -1604,3 +1604,90 @@ button:focus-visible, .chip:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+
+/* Bot Mode v6 */
+.bot-avatar { border-radius: 50%; object-fit: cover; flex-shrink: 0; background: #1a1a22; }
+.handle { color: var(--muted, #8b8b9a); font-weight: 400; font-size: 0.85em; }
+.mode-panel {
+  position: absolute; inset: 52px 0 0 0; z-index: 30;
+  background: var(--bg, #0a0a0c); overflow-y: auto;
+  padding: 0 0 calc(24px + env(safe-area-inset-bottom));
+}
+.mode-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);
+  position: sticky; top: 0; background: var(--bg, #0a0a0c); z-index: 1;
+}
+.mode-head h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.mode-close { font-size: 22px; line-height: 1; }
+.mode-body { padding: 12px 16px 32px; }
+.mode-hint { color: var(--muted, #8b8b9a); font-size: 0.85rem; margin: 0 0 14px; line-height: 1.4; }
+.mode-hint code { font-size: 0.8em; background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 4px; }
+
+.roster-list { display: flex; flex-direction: column; gap: 8px; }
+.roster-row {
+  display: flex; gap: 12px; align-items: center; text-align: left;
+  width: 100%; padding: 12px; border-radius: 14px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+  color: inherit; cursor: pointer;
+}
+.roster-row:active { background: rgba(108,138,255,0.12); }
+.roster-icon { font-size: 22px; width: 40px; height: 40px; display:grid; place-items:center; }
+.roster-name { font-weight: 600; font-size: 0.95rem; }
+.roster-desc { color: var(--muted, #8b8b9a); font-size: 0.8rem; margin-top: 2px; }
+
+.routine-form, .group-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.routine-form input, .routine-form textarea,
+.group-form input {
+  width: 100%; box-sizing: border-box;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; padding: 10px 12px; color: inherit; font: inherit;
+  font-size: 16px; /* iOS zoom prevent */
+}
+.chk { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted, #8b8b9a); }
+.btn-primary {
+  background: #6c8aff; color: #0a0a0c; border: 0; border-radius: 10px;
+  padding: 12px 16px; font-weight: 600; font-size: 0.95rem; cursor: pointer;
+  min-height: 44px;
+}
+.btn-sm {
+  background: rgba(255,255,255,0.08); color: inherit; border: 0; border-radius: 8px;
+  padding: 8px 12px; font-size: 0.85rem; cursor: pointer; min-height: 36px;
+}
+.btn-sm.danger { color: #fb7185; }
+.routine-card, .group-card {
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px; padding: 12px; margin-bottom: 10px; text-align: left; width: 100%; color: inherit;
+}
+.routine-title, .group-name { font-weight: 600; }
+.routine-meta, .group-meta { font-size: 0.78rem; color: var(--muted, #8b8b9a); margin-top: 2px; }
+.routine-prompt { font-size: 0.85rem; margin-top: 6px; opacity: 0.9; }
+.routine-out {
+  margin: 8px 0 0; padding: 8px; border-radius: 8px;
+  background: rgba(0,0,0,0.35); font-size: 0.78rem; white-space: pre-wrap;
+  max-height: 120px; overflow: auto;
+}
+.routine-actions { display: flex; gap: 8px; margin-top: 10px; }
+.group-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 10px; border-radius: 999px; min-height: 40px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.85rem; cursor: pointer;
+}
+.pick-chip input { margin: 0; }
+.group-room-head {
+  display: flex; align-items: center; gap: 10px; padding: 8px 4px 12px;
+  position: sticky; top: 0; background: var(--bg, #0a0a0c); z-index: 2;
+}
+.group-speaker {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; margin-bottom: 4px; opacity: 0.85;
+}
+.bubble.group-bot { border-left: 2px solid rgba(108,138,255,0.45); }
+.empty-hint { color: var(--muted, #8b8b9a); font-size: 0.9rem; }
+
+/* chief/agent step chips already exist; ensure agent types look fine */
+.chief-step[data-type="agent_dispatch"],
+.chief-step[data-type="agent_result"] { border-color: rgba(108,138,255,0.35); }
