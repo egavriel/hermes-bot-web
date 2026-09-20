@@ -1,0 +1,25 @@
+name = "hermes-bot-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Smart Placement: colocate with Hetzner Nuremberg VPS (nearest CF POP: Frankfurt)
+placement = { mode = "smart" }
+
+# KV cache for repeat queries
+[[kv_namespaces]]
+binding = "CACHE"
+id = "1ac885108f364831b0f2b66a24b70054"
+
+# Static assets binding - Worker serves UI files from /public
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[vars]
+HERMES_API_URL = "https://hermes-api.gavrielstudio.com"
+CF_ACCESS_TEAM = "gavrielstudio.cloudflareaccess.com"
+# CF_ACCESS_AUD and HERMES_API_KEY set via `wrangler secret put`
+
+[observability]
+enabled = true
