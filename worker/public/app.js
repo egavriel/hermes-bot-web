@@ -236,39 +236,54 @@ function renderShell() {
     <div class="bot-list" id="botList" hidden></div>
     <div class="bot-editor" id="botEditor" hidden></div>
     <main class="messages" id="messages"></main>
-    <form class="input-bar" id="form">
-      <div class="input-wrap">
-        <textarea id="input" rows="1" placeholder="Ask anything…"
-          autocomplete="off" autocorrect="off" autocapitalize="sentences"
-          spellcheck="true" enterkeyhint="send"></textarea>
-      </div>
-      <button id="attachBtn" type="button" aria-label="Attach image" title="Attach image (or paste)">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-        </svg>
-      </button>
-      <button id="micBtn" type="button" aria-label="Voice input" hidden title="Voice input">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-          <line x1="12" y1="19" x2="12" y2="23"/>
-          <line x1="8" y1="23" x2="16" y2="23"/>
-        </svg>
-      </button>
-      <button id="send" type="submit" aria-label="Send" disabled>
-        <svg class="icon-send" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M5 12h14M12 5l7 7-7 7"/>
-        </svg>
-        <svg class="icon-stop" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-          <rect x="6" y="6" width="12" height="12" rx="2"/>
-        </svg>
-      </button>
-    </form>
+    <!-- Floating chat input: collapsed = circle (FAB), expanded = pill with input -->
+    <div class="chat-fab" id="chatFab">
+      <form id="form">
+        <button id="fabToggle" type="button" aria-label="Open chat input">
+          <svg class="fab-icon-open" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <svg class="fab-icon-close" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+        <div class="fab-expanded">
+          <div class="fab-attach-row" id="fabAttachRow"></div>
+          <div class="fab-input-row">
+            <button id="attachBtn" type="button" aria-label="Attach image" title="Attach image (or paste)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+            <button id="micBtn" type="button" aria-label="Voice input" hidden title="Voice input">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            </button>
+            <textarea id="input" rows="1" placeholder="Ask anything…"
+              autocomplete="off" autocorrect="off" autocapitalize="sentences"
+              spellcheck="true" enterkeyhint="send"></textarea>
+            <button id="send" type="submit" aria-label="Send" disabled>
+              <svg class="icon-send" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+              <svg class="icon-stop" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="6" y="6" width="12" height="12" rx="2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
   `;
 
   const $scrim = document.getElementById("scrim");
   const $input = document.getElementById("input");
-  const $inputWrap = document.querySelector(".input-wrap");
+  const $inputWrap = document.querySelector(".fab-input-row");
   const $send = document.getElementById("send");
   const $micBtn = document.getElementById("micBtn");
   const $newChatBtn = document.getElementById("newChatBtn");
@@ -950,6 +965,69 @@ function renderShell() {
     });
   }
 
+  // ── Floating chat input (FAB pattern) ──
+  const $chatFab = document.getElementById("chatFab");
+  const $fabToggle = document.getElementById("fabToggle");
+  let fabExpanded = false;
+
+  function expandFab() {
+    if (fabExpanded) return;
+    fabExpanded = true;
+    $chatFab.classList.add("expanded");
+    setTimeout(() => $input.focus(), 200);
+  }
+
+  function collapseFab(force = false) {
+    if (!fabExpanded) return;
+    // Only auto-collapse if empty (unless forced)
+    if (!force && $input.value.trim().length > 0) return;
+    fabExpanded = false;
+    $chatFab.classList.remove("expanded");
+    $input.blur();
+  }
+
+  $fabToggle.addEventListener("click", () => {
+    if (fabExpanded) {
+      collapseFab(true);
+    } else {
+      expandFab();
+    }
+  });
+
+  // Tap-outside-to-collapse when empty
+  document.addEventListener("click", (e) => {
+    if (!fabExpanded) return;
+    if ($chatFab.contains(e.target)) return;
+    collapseFab();
+  });
+
+  // Open FAB when typing chips or focusing input elsewhere
+  $input.addEventListener("focus", expandFab);
+
+  // Keep FAB above keyboard using visualViewport API
+  function updateFabPosition() {
+    if (!window.visualViewport) return;
+    const vv = window.visualViewport;
+    const keyboardHeight = window.innerHeight - vv.height - vv.offsetTop;
+    if (keyboardHeight > 50) {
+      // Keyboard is open — push FAB above it
+      $chatFab.style.bottom = `${keyboardHeight + 12}px`;
+    } else {
+      $chatFab.style.bottom = "";
+    }
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", updateFabPosition);
+    window.visualViewport.addEventListener("scroll", updateFabPosition);
+  } else {
+    window.addEventListener("resize", updateFabPosition);
+  }
+
+  // Auto-expand on chip tap (so the typed text is visible)
+  document.addEventListener("click", (e) => {
+    if (e.target.closest(".chip")) expandFab();
+  });
+
   function setStatus(online) {
     $statusDot.classList.toggle("offline", !online);
   }
@@ -1307,9 +1385,11 @@ function renderShell() {
     if (state.controller) state.controller.abort();
   }
 
+  $input.addEventListener("focus", expandFab);
   $input.addEventListener("input", () => {
     autoResize();
     $send.disabled = $input.value.trim().length === 0 || state.isStreaming;
+    if ($input.value.length === 1 && !fabExpanded) expandFab();
   });
   $input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -1385,7 +1465,7 @@ function renderShell() {
         if (idx >= 0) $inputWrap._pendingAttachments.splice(idx, 1);
         $preview.remove();
       });
-      $inputWrap.insertBefore($preview, $input);
+      $chatFab.querySelector(".fab-attach-row").appendChild($preview);
       $input.focus();
     };
     reader.readAsDataURL(file);
