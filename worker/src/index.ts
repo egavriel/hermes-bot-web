@@ -69,24 +69,15 @@ function normalizeEmail(email: string | null | undefined): string | null {
   return e.includes("@") ? e : null;
 }
 
-/** Decode JWT payload without verify — only used after cookie presence is confirmed. */
-function decodeJwtEmail(token: string): string | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return null;
-    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
-    const json = atob(b64 + pad);
-    const payload = JSON.parse(json);
-    return normalizeEmail(payload.email || payload.common_name || null);
-  } catch {
-    return null;
-  }
-}
-
 async function verifyAccessJwt(token: string, env: Env): Promise<{ email: string } | null> {
   try {
-    const { payload } = await jwtVerify(token, getJWKS(env.CF_ACCESS_TEAM), { audience: env.CF_ACCESS_AUD });
+    const { payload } = await jwtVerify(token, getJWKS(env.CF_ACCESS_TEAM), {
+      audience: env.CF_ACCESS_AUD,
+      issuer: `https://${env.CF_ACCESS_TEAM}`,
+      // Pinning the algorithm closes the `alg: "none"` / algorithm-confusion
+      // family: without it a token can nominate how it wants to be checked.
+      algorithms: ["RS256"],
+    });
     const email = normalizeEmail((payload.email as string) || null);
     return email ? { email } : null;
   } catch { return null; }
@@ -106,21 +97,34 @@ function extractJwt(req: Request): string | null {
   return null;
 }
 
+/**
+ * Identify the caller from a VERIFIED Cloudflare Access token, or not at all.
+ *
+ * Two shortcuts were removed here, both of which were full authentication
+ * bypasses. The returned email keys this user's KV bucket, so forging it reads
+ * and rewrites someone else's bots.
+ *
+ *   1. Trusting `Cf-Access-Authenticated-User-Email`. Access injects that
+ *      header, but only on traffic that actually traverses Access. The Worker
+ *      is also reachable on its workers.dev hostname, which the Access
+ *      application does not cover — so anyone could set the header themselves
+ *      and become any user. (wrangler.toml now sets `workers_dev = false`;
+ *      this function no longer reads the header regardless, because one
+ *      forgotten route should not be the only thing standing in the way.)
+ *
+ *   2. Falling back to an unverified decode when `jwtVerify` threw. The caller
+ *      supplies the token, so the caller decides whether verification fails:
+ *      send a garbage signature, land on the unverified path, pick any email.
+ *      The comment said "network blip / clock skew", but the effect was that
+ *      signature checking was optional.
+ *
+ * A JWKS outage now means 401s rather than silent impersonation. That is the
+ * correct trade for an auth boundary.
+ */
 async function authUser(req: Request, env: Env): Promise<{ email: string } | null> {
-  // CF Access injects this on every authenticated request at the edge
-  const headerEmail = normalizeEmail(req.headers.get("Cf-Access-Authenticated-User-Email"));
-  if (headerEmail) return { email: headerEmail };
-
   const jwt = extractJwt(req);
-  if (jwt) {
-    const user = await verifyAccessJwt(jwt, env);
-    if (user) return user;
-    // JWT present but JWKS verify failed (network blip / clock skew).
-    // Still extract email so KV keys stay stable — NEVER share one bucket.
-    const email = decodeJwtEmail(jwt);
-    if (email) return { email };
-  }
-  return null;
+  if (!jwt) return null;
+  return await verifyAccessJwt(jwt, env);
 }
 
 function json(data: any, status = 200): Response {

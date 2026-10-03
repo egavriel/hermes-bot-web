@@ -1,5 +1,9 @@
 name = "hermes-bot-api"
 main = "src/index.ts"
+
+# The Access application is bound to the custom hostname, so a live
+# workers.dev URL would reach this Worker WITHOUT passing Access.
+workers_dev = false
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
